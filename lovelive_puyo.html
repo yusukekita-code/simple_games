@@ -347,17 +347,20 @@ function drawPuyo(cx,x,y,cid,size,alpha=1){
   // スプライトシート or 絵文字
   const sp=spriteSheet&&spriteSheet.complete&&spriteSheet.naturalWidth>0 ? SPRITE_POS[cid] : null;
   if(sp){
-    const cellW=spriteSheet.naturalWidth/3;
-    const cellH=spriteSheet.naturalHeight/2;
-    // アスペクト比を保ったままぷよ円にcoverフィット（縦横圧縮なし）
-    const scale=size/Math.min(cellW,cellH);
-    const dw=cellW*scale, dh=cellH*scale;
-    const dx=x-(dw-size)/2, dy=y-(dh-size)/2;
+    const imgW=spriteSheet.naturalWidth;   // 1024
+    const imgH=spriteSheet.naturalHeight;  // 1024
+    const cellW=imgW/3;  // 列幅 ≈341.3px
+    // 画像は縦長セル(341×512)のため、スタンプ円の実際のY中心を推定してクロップ
+    // 上段の円中心: 画像高さの約30.8%, 下段: 約69.2%
+    const yCenterAbs=[imgH*0.308, imgH*0.692][sp.row];
+    const cropSize=cellW;  // 正方形クロップ(縦横圧縮なし)
+    const sx=sp.col*cellW;
+    const sy=yCenterAbs-cropSize/2;
     cx.save();
     cx.beginPath();
     cx.arc(x+r,y+r,r-2,0,Math.PI*2);
     cx.clip();
-    cx.drawImage(spriteSheet,sp.col*cellW,sp.row*cellH,cellW,cellH,dx,dy,dw,dh);
+    cx.drawImage(spriteSheet,sx,sy,cropSize,cropSize,x,y,size,size);
     cx.restore();
     cx.beginPath();
     cx.arc(x+r*0.65,y+r*0.55,r*0.22,0,Math.PI*2);
