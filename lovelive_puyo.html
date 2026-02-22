@@ -347,13 +347,17 @@ function drawPuyo(cx,x,y,cid,size,alpha=1){
   // スプライトシート or 絵文字
   const sp=spriteSheet&&spriteSheet.complete&&spriteSheet.naturalWidth>0 ? SPRITE_POS[cid] : null;
   if(sp){
-    const sw=spriteSheet.naturalWidth/3;
-    const sh=spriteSheet.naturalHeight/2;
+    const cellW=spriteSheet.naturalWidth/3;
+    const cellH=spriteSheet.naturalHeight/2;
+    // アスペクト比を保ったままぷよ円にcoverフィット（縦横圧縮なし）
+    const scale=size/Math.min(cellW,cellH);
+    const dw=cellW*scale, dh=cellH*scale;
+    const dx=x-(dw-size)/2, dy=y-(dh-size)/2;
     cx.save();
     cx.beginPath();
     cx.arc(x+r,y+r,r-2,0,Math.PI*2);
     cx.clip();
-    cx.drawImage(spriteSheet,sp.col*sw,sp.row*sh,sw,sh,x,y,size,size);
+    cx.drawImage(spriteSheet,sp.col*cellW,sp.row*cellH,cellW,cellH,dx,dy,dw,dh);
     cx.restore();
     cx.beginPath();
     cx.arc(x+r*0.65,y+r*0.55,r*0.22,0,Math.PI*2);
