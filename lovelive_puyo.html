@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ラブライブ！ぷよぷよ</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{
+  background:linear-gradient(135deg,#1a0530 0%,#3d1060 50%,#1a0530 100%);
+  min-height:100vh;display:flex;flex-direction:column;
+  justify-content:center;align-items:center;
+  font-family:'Hiragino Sans','Meiryo','Segoe UI',sans-serif;
+  color:#ffe8f0;user-select:none;
+}
+h1{font-size:22px;color:#ffaacc;text-shadow:0 0 14px rgba(255,170,200,.7);
+  margin-bottom:10px;letter-spacing:3px}
+#wrap{display:flex;gap:20px;align-items:flex-start}
+#board-area{position:relative;border:3px solid #ff88bb;border-radius:8px;
+  background:#0a0015;box-shadow:0 0 30px rgba(255,136,187,.4);overflow:hidden}
+#board{display:block}
+#overlay{display:none;position:absolute;inset:0;background:rgba(0,0,0,.88);
+  flex-direction:column;justify-content:center;align-items:center;gap:14px;z-index:10}
+#overlay.show{display:flex}
+#overlay h2{font-size:36px;color:#ff4488}
+#overlay p{font-size:18px;color:#ffe8f0}
+.ovr-btn{padding:10px 28px;background:#ff88bb;color:#300020;border:none;
+  border-radius:6px;font-size:15px;font-weight:bold;cursor:pointer;transition:.2s}
+.ovr-btn:hover{background:#ffaad0;transform:scale(1.04)}
+#side{width:170px;display:flex;flex-direction:column;gap:6px}
+.panel{background:rgba(255,255,255,.06);border:2px solid #ff88bb;border-radius:8px;padding:7px}
+.label{font-size:10px;color:#ff88bb;letter-spacing:3px;text-transform:uppercase;margin-bottom:3px}
+#scoreVal{font-size:20px;font-weight:bold;color:#fff0f8}
+#chainVal{font-size:13px;color:#ffcc44;min-height:18px}
+#nextCv{display:block;margin:0 auto}
+.ctrl{font-size:11px;line-height:1.7;color:#cc99bb}
+/* Speed slider */
+#speedWrap{display:flex;align-items:center;gap:6px;margin-top:4px}
+#speedSlider{-webkit-appearance:none;appearance:none;width:100%;height:6px;
+  border-radius:3px;background:#441133;outline:none;cursor:pointer}
+#speedSlider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;
+  width:16px;height:16px;border-radius:50%;background:#ff88bb;cursor:pointer}
+#speedLabel{font-size:11px;color:#ffaacc;white-space:nowrap}
+#pauseBtn{width:100%;padding:4px;background:#441155;border:2px solid #ff88bb;
+  border-radius:6px;color:#ffaacc;font-size:13px;font-weight:bold;cursor:pointer;
+  transition:.2s}
+#pauseBtn:hover{background:#661177}
+</style>
+</head>
+<body>
+<h1>🌟 ラブライブ！ぷよぷよ 🌟</h1>
+<div id="wrap">
+  <div id="board-area">
+    <canvas id="board"></canvas>
+    <!-- GAME OVER -->
+    <div id="overlay">
+      <h2>GAME OVER</h2>
+      <p id="finalScore"></p>
+      <button class="ovr-btn" id="restartBtn">もう一度</button>
+    </div>
+  </div>
+
+  <div id="side">
+    <div class="panel">
+      <div class="label">NEXT</div>
+      <canvas id="nextCv" width="120" height="108"></canvas>
+    </div>
+    <div class="panel">
+      <div class="label">SCORE</div>
+      <div id="scoreVal">0</div>
+    </div>
+    <div class="panel">
+      <div class="label">CHAIN</div>
+      <div id="chainVal"></div>
+    </div>
+    <div class="panel">
+      <div class="label">SPEED</div>
+      <div id="speedWrap">
+        <input type="range" id="speedSlider" min="1" max="5" value="3">
+      </div>
+      <div id="speedLabel">速度: 3</div>
+    </div>
+    <button id="pauseBtn">⏸ ポーズ (P)</button>
+    <div class="panel">
+      <div class="label">操作</div>
+      <div class="ctrl">
+        ← →　移動<br>
+        ↑ / Z　右回転<br>
+        X　左回転<br>
+        ↓　高速落下<br>
+        Space　即落下<br>
+        P　ポーズ
+      </div>
+    </div>
+    <div class="panel">
+      <div class="label">キャラ</div>
+      <canvas id="legendCv" width="150" height="180"></canvas>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── CONFIG ─────────────────────────────────────────────────────────
+const COLS = 6, ROWS = 13, VIS = 12, CELL = 56;
+const W = COLS * CELL, H = VIS * CELL;
+
+// キャラクター定義
+const CHARS = {
+  orange: { name:'穂乃果', short:'穂乃果', emoji:'🔥', bg:'#cc5500', hi:'#ff8833', border:'#993300', text:'#ffe0cc' },
+  white:  { name:'ことり', short:'ことり', emoji:'🕊️', bg:'#8888aa', hi:'#ddddff', border:'#555577', text:'#ffffff' },
+  blue:   { name:'海未',   short:'海未',   emoji:'🌊', bg:'#1144aa', hi:'#3377ff', border:'#002288', text:'#aaccff' },
+  pink:   { name:'にこ',   short:'にこ',   emoji:'💗', bg:'#cc2266', hi:'#ff55aa', border:'#991144', text:'#ffccee' },
+  green:  { name:'花陽',   short:'花陽',   emoji:'🌸', bg:'#226622', hi:'#44bb44', border:'#114411', text:'#ccffcc' },
+};
+const CIDS = ['orange','white','blue','pink','green'];
+
+// ★ スティッカー画像URL ★
+// ロード失敗時は自動で絵文字にフォールバック
+const STICKER_URLS = {
+  orange: 'https://static.wikia.nocookie.net/love-live/images/c/c6/Love_Live%21_infobox_-_Kousaka_Honoka.png/revision/latest?cb=20170402074116', // 穂乃果
+  white:  'https://static.wikia.nocookie.net/love-live/images/b/bc/Love_Live!_infobox_-_Minami_Kotori.png/revision/latest?cb=20170402074118', // ことり
+  blue:   'https://static.wikia.nocookie.net/love-live/images/3/36/Love_Live!_infobox_-_Sonoda_Umi.png/revision/latest?cb=20170402074119', // 海未
+  pink:   'https://static.wikia.nocookie.net/love-live/images/3/39/Love_Live!_infobox_-_Yazawa_Nico.png/revision/latest?cb=20170402074124', // にこ
+  green:  'https://static.wikia.nocookie.net/love-live/images/7/70/Love_Live!_infobox_-_Koizumi_Hanayo.png/revision/latest?cb=20170402074123', // 花陽
+};
+const stickerImgs = {};
+
+// スピード設定 (ms/row)
+const SPEED_TABLE = [900, 650, 450, 280, 130];
+let speedLevel = 3; // 1-5
+
+// ── CANVAS SETUP ───────────────────────────────────────────────────
+const boardCv = document.getElementById('board');
+boardCv.width = W; boardCv.height = H;
+const ctx = boardCv.getContext('2d');
+const nextCv = document.getElementById('nextCv');
+const nctx = nextCv.getContext('2d');
+const legendCv = document.getElementById('legendCv');
+const lctx = legendCv.getContext('2d');
+
+// ── GAME STATE ─────────────────────────────────────────────────────
+let board, cur, nxt, score, gameOn, paused, clearing, fallAcc, lastT;
+
+function randCol(){ return CIDS[Math.floor(Math.random()*CIDS.length)]; }
+function makePair(){ return { pCol:randCol(), aCol:randCol() }; }
+function armOff(rot){ return [{dc:0,dr:-1},{dc:1,dr:0},{dc:0,dr:1},{dc:-1,dr:0}][rot]; }
+
+function init(){
+  board = Array.from({length:ROWS}, ()=>Array(COLS).fill(null));
+  score = 0; gameOn = true; paused = false; clearing = false; fallAcc = 0; lastT = null;
+  nxt = makePair();
+  spawn();
+  document.getElementById('overlay').classList.remove('show');
+  document.getElementById('scoreVal').textContent = '0';
+  document.getElementById('chainVal').textContent = '';
+  document.getElementById('pauseBtn').textContent = '⏸ ポーズ (P)';
+  drawLegend();
+}
+
+function spawn(){
+  const {pCol,aCol} = nxt;
+  nxt = makePair();
+  cur = { pc:2, pr:1, ac:2, ar:0, pCol, aCol, rot:0 };
+  if(board[1][2] || board[0][2]) gameOver();
+}
+
+function gameOver(){
+  gameOn = false;
+  document.getElementById('overlay').classList.add('show');
+  document.getElementById('finalScore').textContent = `スコア: ${score.toLocaleString()}`;
+}
+
+function togglePause(){
+  if(!gameOn) return;
+  paused = !paused;
+  document.getElementById('pauseBtn').textContent = paused ? '▶ 再開 (P)' : '⏸ ポーズ (P)';
+  if(!paused){ lastT = null; requestAnimationFrame(loop); }
+}
+
+// ── PHYSICS ────────────────────────────────────────────────────────
+function inBounds(c,r){ return c>=0&&c<COLS&&r>=0&&r<ROWS; }
+function free(c,r){ return inBounds(c,r) && board[r][c]===null; }
+function pairFree(pc,pr,ac,ar){ return free(pc,pr)&&free(ac,ar); }
+
+function move(dc){
+  if(!cur||clearing||paused) return;
+  if(pairFree(cur.pc+dc,cur.pr,cur.ac+dc,cur.ar)){ cur.pc+=dc; cur.ac+=dc; }
+}
+
+function drop(){
+  if(!cur||clearing) return false;
+  if(pairFree(cur.pc,cur.pr+1,cur.ac,cur.ar+1)){ cur.pr++; cur.ar++; return true; }
+  return false;
+}
+
+function rotate(dir){
+  if(!cur||clearing||paused) return;
+  const newRot = ((cur.rot+dir)%4+4)%4;
+  const {dc,dr} = armOff(newRot);
+  let nac=cur.pc+dc, nar=cur.pr+dr, npc=cur.pc, npr=cur.pr;
+  if(!pairFree(npc,npr,nac,nar)){
+    for(const [kc,kr] of [[-1,0],[1,0],[0,-1]]){
+      if(pairFree(npc+kc,npr+kr,nac+kc,nar+kr)){
+        npc+=kc; npr+=kr; nac+=kc; nar+=kr; break;
+      }
+    }
+    if(!pairFree(npc,npr,nac,nar)) return;
+  }
+  cur.rot=newRot; cur.pc=npc; cur.pr=npr; cur.ac=nac; cur.ar=nar;
+}
+
+function hardDrop(){
+  if(!cur||clearing||paused) return;
+  while(drop()){}
+  land();
+}
+
+function land(){
+  if(!cur) return;
+  board[cur.pr][cur.pc]=cur.pCol;
+  board[cur.ar][cur.ac]=cur.aCol;
+  cur=null;
+  gravity();
+  checkChains(0);
+}
+
+function gravity(){
+  let changed=true;
+  while(changed){
+    changed=false;
+    for(let r=ROWS-2;r>=0;r--){
+      for(let c=0;c<COLS;c++){
+        if(board[r][c]&&!board[r+1][c]){
+          board[r+1][c]=board[r][c]; board[r][c]=null; changed=true;
+        }
+      }
+    }
+  }
+}
+
+function floodFill(r,c,col,vis){
+  const g=[], stk=[[r,c]];
+  while(stk.length){
+    const [cr,cc]=stk.pop();
+    if(cr<0||cr>=ROWS||cc<0||cc>=COLS||vis[cr][cc]||board[cr][cc]!==col) continue;
+    vis[cr][cc]=true; g.push([cr,cc]);
+    stk.push([cr-1,cc],[cr+1,cc],[cr,cc-1],[cr,cc+1]);
+  }
+  return g;
+}
+
+const CHAIN_BONUS=[0,0,8,16,32,64,96,128,160,192,224];
+
+function checkChains(chain){
+  clearing=true;
+  const vis=Array.from({length:ROWS},()=>Array(COLS).fill(false));
+  const toRemove=[];
+  for(let r=0;r<ROWS;r++){
+    for(let c=0;c<COLS;c++){
+      if(board[r][c]&&!vis[r][c]){
+        const g=floodFill(r,c,board[r][c],vis);
+        if(g.length>=4) toRemove.push(...g);
+      }
+    }
+  }
+  if(toRemove.length){
+    for(const [r,c] of toRemove) board[r][c]=null;
+    const cb=CHAIN_BONUS[Math.min(chain,10)];
+    score+=toRemove.length*10*(cb+1);
+    document.getElementById('scoreVal').textContent=score.toLocaleString();
+    const c1=chain+1;
+    document.getElementById('chainVal').textContent=c1>1?`${c1} CHAIN!!`:`${c1} CHAIN!`;
+    setTimeout(()=>{ gravity(); checkChains(chain+1); }, 420);
+  } else {
+    clearing=false;
+    document.getElementById('chainVal').textContent='';
+    fallAcc=0;
+    if(gameOn) spawn();
+  }
+}
+
+// ── INPUT ──────────────────────────────────────────────────────────
+const held={}, kState={};
+const DAS=150, ARR=60;
+
+document.addEventListener('keydown',e=>{
+  const prevent=['ArrowLeft','ArrowRight','ArrowUp','ArrowDown',' '];
+  if(prevent.includes(e.key)) e.preventDefault();
+  if(e.key==='p'||e.key==='P'){ togglePause(); return; }
+  if(!gameOn||paused) return;
+  if(held[e.key]) return;
+  held[e.key]=true;
+  switch(e.key){
+    case 'ArrowLeft':  move(-1); break;
+    case 'ArrowRight': move(1);  break;
+    case 'ArrowUp': case 'z': case 'Z': rotate(1);  break;
+    case 'x': case 'X':               rotate(-1); break;
+    case ' ': hardDrop(); break;
+  }
+});
+document.addEventListener('keyup',e=>{ delete held[e.key]; delete kState[e.key]; });
+
+function handleDAS(dt){
+  for(const k of ['ArrowLeft','ArrowRight']){
+    if(held[k]&&!paused){
+      if(!kState[k]) kState[k]={t:DAS};
+      else{
+        kState[k].t-=dt;
+        if(kState[k].t<=0){ kState[k].t=ARR; move(k==='ArrowLeft'?-1:1); }
+      }
+    }
+  }
+}
+
+// スピードスライダー
+const slider=document.getElementById('speedSlider');
+const speedLbl=document.getElementById('speedLabel');
+slider.addEventListener('input',()=>{
+  speedLevel=parseInt(slider.value);
+  speedLbl.textContent=`速度: ${speedLevel}`;
+});
+
+// ポーズボタン
+document.getElementById('pauseBtn').addEventListener('click', togglePause);
+document.getElementById('restartBtn').addEventListener('click', init);
+
+// ── DRAW PUYO ──────────────────────────────────────────────────────
+function drawPuyo(cx,x,y,cid,size,alpha=1){
+  const ch=CHARS[cid];
+  const r=size/2;
+  cx.save();
+  cx.globalAlpha=alpha;
+
+  // 背景グラデーション円
+  const grad=cx.createRadialGradient(x+r*0.7,y+r*0.6,r*0.1,x+r,y+r,r);
+  grad.addColorStop(0,ch.hi);
+  grad.addColorStop(0.6,ch.bg);
+  grad.addColorStop(1,ch.border);
+  cx.beginPath();
+  cx.arc(x+r,y+r,r-2,0,Math.PI*2);
+  cx.fillStyle=grad;
+  cx.fill();
+  cx.strokeStyle=ch.border;
+  cx.lineWidth=2;
+  cx.stroke();
+
+  // 光沢
+  cx.beginPath();
+  cx.arc(x+r*0.65,y+r*0.55,r*0.28,0,Math.PI*2);
+  cx.fillStyle='rgba(255,255,255,0.28)';
+  cx.fill();
+
+  // スティッカー or 絵文字
+  const img=stickerImgs[cid];
+  if(img&&img.complete&&img.naturalWidth>0){
+    cx.save();
+    cx.beginPath();
+    cx.arc(x+r,y+r,r-2,0,Math.PI*2);
+    cx.clip();
+    const pad=r*0.08;
+    cx.drawImage(img,x+pad,y+pad,size-pad*2,size-pad*2);
+    cx.restore();
+    cx.beginPath();
+    cx.arc(x+r*0.65,y+r*0.55,r*0.22,0,Math.PI*2);
+    cx.fillStyle='rgba(255,255,255,0.18)';
+    cx.fill();
+  } else {
+    cx.font=`${Math.floor(r*0.82)}px serif`;
+    cx.textAlign='center';
+    cx.textBaseline='middle';
+    cx.fillText(ch.emoji,x+r,y+r*0.95);
+    cx.font=`bold ${Math.max(7,Math.floor(r*0.26))}px 'Hiragino Sans','Meiryo',sans-serif`;
+    cx.fillStyle=ch.text;
+    cx.textBaseline='bottom';
+    cx.fillText(ch.short,x+r,y+size-3);
+  }
+  cx.restore();
+}
+
+// ── LEGEND ─────────────────────────────────────────────────────────
+function drawLegend(){
+  lctx.clearRect(0,0,150,180);
+  const sz=30;
+  CIDS.forEach((cid,i)=>{
+    drawPuyo(lctx,2,2+i*35,cid,sz);
+    lctx.save();
+    lctx.fillStyle='#ffe8f0';
+    lctx.font=`11px 'Hiragino Sans','Meiryo',sans-serif`;
+    lctx.textBaseline='middle';
+    lctx.fillText(CHARS[cid].name,36,2+i*35+sz/2);
+    lctx.restore();
+  });
+}
+
+// ── GHOST ──────────────────────────────────────────────────────────
+function getGhost(){
+  if(!cur||clearing) return null;
+  let gpr=cur.pr, gar=cur.ar;
+  while(pairFree(cur.pc,gpr+1,cur.ac,gar+1)){ gpr++; gar++; }
+  return {pc:cur.pc,pr:gpr,ac:cur.ac,ar:gar};
+}
+
+// ── RENDER ─────────────────────────────────────────────────────────
+function render(){
+  ctx.fillStyle='#08001a';
+  ctx.fillRect(0,0,W,H);
+
+  // グリッド
+  ctx.strokeStyle='rgba(255,100,170,0.12)';
+  ctx.lineWidth=1;
+  for(let c=0;c<=COLS;c++){ctx.beginPath();ctx.moveTo(c*CELL,0);ctx.lineTo(c*CELL,H);ctx.stroke();}
+  for(let r=0;r<=VIS;r++){ctx.beginPath();ctx.moveTo(0,r*CELL);ctx.lineTo(W,r*CELL);ctx.stroke();}
+
+  // ボードのぷよ（row 0 は非表示）
+  for(let r=1;r<ROWS;r++){
+    for(let c=0;c<COLS;c++){
+      if(board[r][c]) drawPuyo(ctx,c*CELL,(r-1)*CELL,board[r][c],CELL);
+    }
+  }
+
+  // ゴースト
+  const g=getGhost();
+  if(g&&cur&&g.pr!==cur.pr){
+    if(g.pr>=1) drawPuyo(ctx,g.pc*CELL,(g.pr-1)*CELL,cur.pCol,CELL,0.18);
+    if(g.ar>=1) drawPuyo(ctx,g.ac*CELL,(g.ar-1)*CELL,cur.aCol,CELL,0.18);
+  }
+
+  // 落下中ぷよ
+  if(cur){
+    if(cur.pr>=1) drawPuyo(ctx,cur.pc*CELL,(cur.pr-1)*CELL,cur.pCol,CELL);
+    if(cur.ar>=1) drawPuyo(ctx,cur.ac*CELL,(cur.ar-1)*CELL,cur.aCol,CELL);
+  }
+
+  // NEXT
+  nctx.fillStyle='#06001a'; nctx.fillRect(0,0,120,108);
+  if(nxt){
+    const ns=48,nx=(120-ns)/2;
+    drawPuyo(nctx,nx,2,nxt.aCol,ns);
+    drawPuyo(nctx,nx,ns+4,nxt.pCol,ns);
+  }
+}
+
+// ── GAME LOOP ──────────────────────────────────────────────────────
+function loop(ts){
+  if(paused) return; // ポーズ中はループ停止
+  if(!lastT) lastT=ts;
+  const dt=ts-lastT; lastT=ts;
+
+  if(gameOn){
+    if(!clearing&&cur){
+      const interval=held['ArrowDown'] ? 60 : SPEED_TABLE[speedLevel-1];
+      fallAcc+=dt;
+      if(fallAcc>=interval){ fallAcc=0; if(!drop()) land(); }
+    }
+    handleDAS(dt);
+  }
+  render();
+  requestAnimationFrame(loop);
+}
+
+// ── STICKER LOAD ───────────────────────────────────────────────────
+function loadStickers(){
+  let loaded=0;
+  const urls=Object.entries(STICKER_URLS).filter(([,v])=>v);
+  const total=urls.length;
+  if(total===0){ drawLegend(); return; }
+  for(const [cid,url] of urls){
+    const img=new Image();
+    img.onload=()=>{ stickerImgs[cid]=img; loaded++; if(loaded>=total) drawLegend(); };
+    img.onerror=()=>{ console.warn(`${cid}のスティッカーロード失敗`); loaded++; if(loaded>=total) drawLegend(); };
+    img.src=url;
+  }
+}
+
+// ── START ──────────────────────────────────────────────────────────
+loadStickers();
+init();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
