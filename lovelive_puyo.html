@@ -109,21 +109,21 @@ const CHARS = {
   orange: { name:'穂乃果', short:'穂乃果', emoji:'🔥', bg:'#cc5500', hi:'#ff8833', border:'#993300', text:'#ffe0cc' },
   white:  { name:'ことり', short:'ことり', emoji:'🕊️', bg:'#8888aa', hi:'#ddddff', border:'#555577', text:'#ffffff' },
   blue:   { name:'海未',   short:'海未',   emoji:'🌊', bg:'#1144aa', hi:'#3377ff', border:'#002288', text:'#aaccff' },
-  pink:   { name:'にこ',   short:'にこ',   emoji:'💗', bg:'#cc2266', hi:'#ff55aa', border:'#991144', text:'#ffccee' },
+  yellow: { name:'凛',     short:'凛',     emoji:'⭐', bg:'#bb8800', hi:'#ffee44', border:'#886600', text:'#fff8cc' },
   green:  { name:'花陽',   short:'花陽',   emoji:'🌸', bg:'#226622', hi:'#44bb44', border:'#114411', text:'#ccffcc' },
 };
-const CIDS = ['orange','white','blue','pink','green'];
+const CIDS = ['orange','white','blue','yellow','green'];
 
-// ★ スティッカー画像URL ★
-// ロード失敗時は自動で絵文字にフォールバック
-const STICKER_URLS = {
-  orange: 'https://static.wikia.nocookie.net/love-live/images/c/c6/Love_Live%21_infobox_-_Kousaka_Honoka.png/revision/latest?cb=20170402074116', // 穂乃果
-  white:  'https://static.wikia.nocookie.net/love-live/images/b/bc/Love_Live!_infobox_-_Minami_Kotori.png/revision/latest?cb=20170402074118', // ことり
-  blue:   'https://static.wikia.nocookie.net/love-live/images/3/36/Love_Live!_infobox_-_Sonoda_Umi.png/revision/latest?cb=20170402074119', // 海未
-  pink:   'https://static.wikia.nocookie.net/love-live/images/3/39/Love_Live!_infobox_-_Yazawa_Nico.png/revision/latest?cb=20170402074124', // にこ
-  green:  'https://static.wikia.nocookie.net/love-live/images/7/70/Love_Live!_infobox_-_Koizumi_Hanayo.png/revision/latest?cb=20170402074123', // 花陽
+// ★ スプライトシート (lovelive_stamps3.png: 3列×2行) ★
+// 列: 0=穂乃果, 1=ことり, 2=海未 / 行: 0=上段, 1=下段(左=凛, 右=花陽)
+let spriteSheet = null;
+const SPRITE_POS = {
+  orange: { col:0, row:0 },  // 穂乃果
+  white:  { col:1, row:0 },  // ことり
+  blue:   { col:2, row:0 },  // 海未
+  yellow: { col:0, row:1 },  // 凛
+  green:  { col:2, row:1 },  // 花陽
 };
-const stickerImgs = {};
 
 // スピード設定 (ms/row)
 const SPEED_TABLE = [900, 650, 450, 280, 130];
@@ -344,27 +344,26 @@ function drawPuyo(cx,x,y,cid,size,alpha=1){
   cx.lineWidth=2;
   cx.stroke();
 
-  // 光沢
-  cx.beginPath();
-  cx.arc(x+r*0.65,y+r*0.55,r*0.28,0,Math.PI*2);
-  cx.fillStyle='rgba(255,255,255,0.28)';
-  cx.fill();
-
-  // スティッカー or 絵文字
-  const img=stickerImgs[cid];
-  if(img&&img.complete&&img.naturalWidth>0){
+  // スプライトシート or 絵文字
+  const sp=spriteSheet&&spriteSheet.complete&&spriteSheet.naturalWidth>0 ? SPRITE_POS[cid] : null;
+  if(sp){
+    const sw=spriteSheet.naturalWidth/3;
+    const sh=spriteSheet.naturalHeight/2;
     cx.save();
     cx.beginPath();
     cx.arc(x+r,y+r,r-2,0,Math.PI*2);
     cx.clip();
-    const pad=r*0.08;
-    cx.drawImage(img,x+pad,y+pad,size-pad*2,size-pad*2);
+    cx.drawImage(spriteSheet,sp.col*sw,sp.row*sh,sw,sh,x,y,size,size);
     cx.restore();
     cx.beginPath();
     cx.arc(x+r*0.65,y+r*0.55,r*0.22,0,Math.PI*2);
     cx.fillStyle='rgba(255,255,255,0.18)';
     cx.fill();
   } else {
+    cx.beginPath();
+    cx.arc(x+r*0.65,y+r*0.55,r*0.28,0,Math.PI*2);
+    cx.fillStyle='rgba(255,255,255,0.28)';
+    cx.fill();
     cx.font=`${Math.floor(r*0.82)}px serif`;
     cx.textAlign='center';
     cx.textBaseline='middle';
@@ -458,22 +457,16 @@ function loop(ts){
   requestAnimationFrame(loop);
 }
 
-// ── STICKER LOAD ───────────────────────────────────────────────────
-function loadStickers(){
-  let loaded=0;
-  const urls=Object.entries(STICKER_URLS).filter(([,v])=>v);
-  const total=urls.length;
-  if(total===0){ drawLegend(); return; }
-  for(const [cid,url] of urls){
-    const img=new Image();
-    img.onload=()=>{ stickerImgs[cid]=img; loaded++; if(loaded>=total) drawLegend(); };
-    img.onerror=()=>{ console.warn(`${cid}のスティッカーロード失敗`); loaded++; if(loaded>=total) drawLegend(); };
-    img.src=url;
-  }
+// ── SPRITE SHEET LOAD ──────────────────────────────────────────────
+function loadSpriteSheet(){
+  spriteSheet=new Image();
+  spriteSheet.onload=()=>{ drawLegend(); };
+  spriteSheet.onerror=()=>{ console.warn('スプライトシートのロード失敗'); drawLegend(); };
+  spriteSheet.src='./lovelive_stamps3.png';
 }
 
 // ── START ──────────────────────────────────────────────────────────
-loadStickers();
+loadSpriteSheet();
 init();
 requestAnimationFrame(loop);
 </script>
