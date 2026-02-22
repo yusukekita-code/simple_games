@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>原神ぷよぷよ</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{
+  background:linear-gradient(135deg,#0d1b2a 0%,#1a2a4a 50%,#0d1b2a 100%);
+  min-height:100vh;display:flex;flex-direction:column;
+  justify-content:center;align-items:center;
+  font-family:'Hiragino Sans','Meiryo','Segoe UI',sans-serif;
+  color:#e8d5a3;user-select:none;
+}
+h1{font-size:24px;color:#c8a96e;text-shadow:0 0 12px rgba(200,169,110,.6);margin-bottom:12px;letter-spacing:4px}
+#wrap{display:flex;gap:20px;align-items:flex-start}
+#board-area{position:relative;border:3px solid #c8a96e;border-radius:8px;
+  background:#080e1c;box-shadow:0 0 30px rgba(200,169,110,.4);overflow:hidden}
+#board{display:block}
+#overlay{display:none;position:absolute;inset:0;background:rgba(0,0,0,.88);
+  flex-direction:column;justify-content:center;align-items:center;gap:14px;z-index:10}
+#overlay.show{display:flex}
+#overlay h2{font-size:36px;color:#ff4455}
+#overlay p{font-size:18px;color:#e8d5a3}
+#restartBtn{padding:10px 28px;background:#c8a96e;color:#1a0800;border:none;
+  border-radius:6px;font-size:16px;font-weight:bold;cursor:pointer;transition:.2s}
+#restartBtn:hover{background:#e8c98e;transform:scale(1.04)}
+#side{width:160px;display:flex;flex-direction:column;gap:14px}
+.panel{background:rgba(255,255,255,.06);border:2px solid #c8a96e;border-radius:8px;padding:12px}
+.label{font-size:10px;color:#c8a96e;letter-spacing:3px;text-transform:uppercase;margin-bottom:6px}
+#scoreVal{font-size:26px;font-weight:bold;color:#fff8e7}
+#chainVal{font-size:16px;color:#ff9944;min-height:22px}
+#nextCv{display:block;margin:0 auto}
+.ctrl{font-size:11px;line-height:2;color:#90a8c0}
+</style>
+</head>
+<body>
+<h1>⭐ 原神ぷよぷよ ⭐</h1>
+<div id="wrap">
+  <div id="board-area">
+    <canvas id="board"></canvas>
+    <div id="overlay">
+      <h2>GAME OVER</h2>
+      <p id="finalScore"></p>
+      <button id="restartBtn">もう一度</button>
+    </div>
+  </div>
+  <div id="side">
+    <div class="panel">
+      <div class="label">NEXT</div>
+      <canvas id="nextCv" width="120" height="132"></canvas>
+    </div>
+    <div class="panel">
+      <div class="label">SCORE</div>
+      <div id="scoreVal">0</div>
+    </div>
+    <div class="panel">
+      <div class="label">CHAIN</div>
+      <div id="chainVal"></div>
+    </div>
+    <div class="panel">
+      <div class="label">操作</div>
+      <div class="ctrl">
+        ← →　移動<br>
+        ↑ / Z　右回転<br>
+        X　左回転<br>
+        ↓　高速落下<br>
+        Space　即落下
+      </div>
+    </div>
+    <div class="panel">
+      <div class="label">キャラ</div>
+      <canvas id="legendCv" width="136" height="220"></canvas>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── CONFIG ─────────────────────────────────────────────────────────
+const COLS = 6, ROWS = 13, VIS = 12, CELL = 56;
+const W = COLS * CELL, H = VIS * CELL;
+
+// Characters: color-id → display info
+// Sticker images loaded dynamically; fallback to canvas-drawn badge
+const CHARS = {
+  blue:   { name:'コロンビーナ', short:'コロン', emoji:'🎭', bg:'#2255cc', hi:'#5588ff', border:'#1133aa', text:'#ccdcff' },
+  purple: { name:'ヴァレサ',     short:'ヴァレサ', emoji:'⚡', bg:'#7722bb', hi:'#bb55ff', border:'#550099', text:'#e8ccff' },
+  green:  { name:'綾華',         short:'綾華',   emoji:'❄️', bg:'#117744', hi:'#44cc88', border:'#0a5533', text:'#aaffdd' },
+  yellow: { name:'ノエル',       short:'ノエル', emoji:'🛡️', bg:'#aa7700', hi:'#ffcc22', border:'#885500', text:'#fff0aa' },
+  red:    { name:'煙緋',         short:'煙緋',   emoji:'🔥', bg:'#bb2200', hi:'#ff5533', border:'#881100', text:'#ffccaa' },
+};
+const CIDS = ['blue','purple','green','yellow','red'];
+
+// ★ キャラクタースティッカー画像URL ★
+// ロード失敗時は自動で絵文字にフォールバック
+const STICKER_URLS = {
+  blue:   'https://upload-os-bbs.hoyolab.com/upload/2025/09/15/ba6d71a81117a28cf8675548ac6993ea_539292986355310729.png?x-oss-process=image/auto-orient,0/interlace,1/format,webp/quality,q_70',
+  purple: 'https://upload-os-bbs.hoyolab.com/upload/2025/04/01/374fe2a767cff87ba6898f66e8931861_6720701140663426172.png?x-oss-process=image/auto-orient,0/interlace,1/format,webp/quality,q_70',
+  green:  'https://s3.getstickerpack.com/storage/uploads/sticker-pack/genshin-impact-ayaka/sticker_1.png',
+  yellow: 'https://static.wikia.nocookie.net/gensin-impact/images/b/b5/Icon_Emoji_Paimon%27s_Paintings_27_Noelle_1.png/revision/latest?cb=20231019084233',
+  red:    'https://s3.getstickerpack.com/storage/uploads/sticker-pack/genshin-impact-yanfei/sticker_1.png',
+};
+const stickerImgs = {}; // preloaded Image objects
+
+// ── CANVAS SETUP ───────────────────────────────────────────────────
+const boardCv = document.getElementById('board');
+boardCv.width = W; boardCv.height = H;
+const ctx = boardCv.getContext('2d');
+
+const nextCv = document.getElementById('nextCv');
+const nctx = nextCv.getContext('2d');
+
+const legendCv = document.getElementById('legendCv');
+const lctx = legendCv.getContext('2d');
+
+// ── GAME STATE ─────────────────────────────────────────────────────
+let board, cur, nxt, score, gameOn, clearing, fallAcc, lastT;
+
+// cur = { pc,pr,ac,ar,pCol,aCol,rot }
+// Rotations: 0=arm above, 1=arm right, 2=arm below, 3=arm left
+
+function randCol(){ return CIDS[Math.floor(Math.random()*CIDS.length)]; }
+function makePair(){ return { pCol:randCol(), aCol:randCol() }; }
+
+function armOff(rot){
+  return [{dc:0,dr:-1},{dc:1,dr:0},{dc:0,dr:1},{dc:-1,dr:0}][rot];
+}
+
+function init(){
+  board = Array.from({length:ROWS}, ()=>Array(COLS).fill(null));
+  score = 0; gameOn = true; clearing = false; fallAcc = 0; lastT = null;
+  nxt = makePair();
+  spawn();
+  document.getElementById('overlay').classList.remove('show');
+  document.getElementById('scoreVal').textContent = '0';
+  document.getElementById('chainVal').textContent = '';
+  drawLegend();
+}
+
+function spawn(){
+  const {pCol,aCol} = nxt;
+  nxt = makePair();
+  cur = { pc:2, pr:1, ac:2, ar:0, pCol, aCol, rot:0 };
+  // Game over if spawn blocked
+  if(board[1][2] || board[0][2]){ gameOver(); }
+}
+
+function gameOver(){
+  gameOn = false;
+  document.getElementById('overlay').classList.add('show');
+  document.getElementById('finalScore').textContent = `スコア: ${score.toLocaleString()}`;
+}
+
+// ── PHYSICS ────────────────────────────────────────────────────────
+function inBounds(c,r){ return c>=0&&c<COLS&&r>=0&&r<ROWS; }
+function free(c,r){ return inBounds(c,r) && board[r][c]===null; }
+function pairFree(pc,pr,ac,ar){ return free(pc,pr)&&free(ac,ar); }
+
+function move(dc){
+  if(!cur||clearing) return;
+  if(pairFree(cur.pc+dc, cur.pr, cur.ac+dc, cur.ar)){
+    cur.pc+=dc; cur.ac+=dc;
+  }
+}
+
+function drop(){
+  if(!cur||clearing) return false;
+  if(pairFree(cur.pc, cur.pr+1, cur.ac, cur.ar+1)){
+    cur.pr++; cur.ar++; return true;
+  }
+  return false;
+}
+
+function rotate(dir){ // 1=CW -1=CCW
+  if(!cur||clearing) return;
+  const newRot = ((cur.rot+dir)%4+4)%4;
+  const {dc,dr} = armOff(newRot);
+  let nac=cur.pc+dc, nar=cur.pr+dr;
+  let npc=cur.pc, npr=cur.pr;
+  if(!pairFree(npc,npr,nac,nar)){
+    // Wall kicks
+    for(const [kc,kr] of [[-1,0],[1,0],[0,-1]]){
+      if(pairFree(npc+kc,npr+kr,nac+kc,nar+kr)){
+        npc+=kc; npr+=kr; nac+=kc; nar+=kr; break;
+      }
+    }
+    if(!pairFree(npc,npr,nac,nar)) return;
+  }
+  cur.rot=newRot; cur.pc=npc; cur.pr=npr; cur.ac=nac; cur.ar=nar;
+}
+
+function hardDrop(){
+  if(!cur||clearing) return;
+  while(drop()){}
+  land();
+}
+
+function land(){
+  if(!cur) return;
+  board[cur.pr][cur.pc] = cur.pCol;
+  board[cur.ar][cur.ac] = cur.aCol;
+  cur = null;
+  gravity();
+  checkChains(0);
+}
+
+function gravity(){
+  let changed=true;
+  while(changed){
+    changed=false;
+    for(let r=ROWS-2;r>=0;r--){
+      for(let c=0;c<COLS;c++){
+        if(board[r][c]&&!board[r+1][c]){
+          board[r+1][c]=board[r][c]; board[r][c]=null; changed=true;
+        }
+      }
+    }
+  }
+}
+
+function floodFill(r,c,col,vis){
+  const g=[], stk=[[r,c]];
+  while(stk.length){
+    const [cr,cc]=stk.pop();
+    if(cr<0||cr>=ROWS||cc<0||cc>=COLS||vis[cr][cc]||board[cr][cc]!==col) continue;
+    vis[cr][cc]=true; g.push([cr,cc]);
+    stk.push([cr-1,cc],[cr+1,cc],[cr,cc-1],[cr,cc+1]);
+  }
+  return g;
+}
+
+const CHAIN_BONUS = [0,0,8,16,32,64,96,128,160,192,224];
+
+function checkChains(chain){
+  clearing=true;
+  const vis = Array.from({length:ROWS},()=>Array(COLS).fill(false));
+  const toRemove=[];
+  for(let r=0;r<ROWS;r++){
+    for(let c=0;c<COLS;c++){
+      if(board[r][c]&&!vis[r][c]){
+        const g=floodFill(r,c,board[r][c],vis);
+        if(g.length>=4) toRemove.push(...g);
+      }
+    }
+  }
+  if(toRemove.length){
+    for(const [r,c] of toRemove) board[r][c]=null;
+    const cb = CHAIN_BONUS[Math.min(chain,10)];
+    score += toRemove.length*10*(cb+1);
+    document.getElementById('scoreVal').textContent = score.toLocaleString();
+    const c1 = chain+1;
+    document.getElementById('chainVal').textContent = c1>1?`${c1} CHAIN!!`:`${c1} CHAIN!`;
+    setTimeout(()=>{ gravity(); checkChains(chain+1); }, 450);
+  } else {
+    clearing=false;
+    document.getElementById('chainVal').textContent='';
+    fallAcc=0;
+    if(gameOn) spawn();
+  }
+}
+
+// ── INPUT ──────────────────────────────────────────────────────────
+const held={}, kState={};
+const DAS=150, ARR=60;
+
+document.addEventListener('keydown',e=>{
+  const prevent=['ArrowLeft','ArrowRight','ArrowUp','ArrowDown',' '];
+  if(prevent.includes(e.key)) e.preventDefault();
+  if(!gameOn) return;
+  if(held[e.key]) return;
+  held[e.key]=true;
+  switch(e.key){
+    case 'ArrowLeft':  move(-1); break;
+    case 'ArrowRight': move(1);  break;
+    case 'ArrowUp': case 'z': case 'Z': rotate(1);  break;
+    case 'x': case 'X': rotate(-1); break;
+    case ' ': hardDrop(); break;
+  }
+});
+document.addEventListener('keyup',e=>{ delete held[e.key]; delete kState[e.key]; });
+
+function handleDAS(dt){
+  for(const k of ['ArrowLeft','ArrowRight']){
+    if(held[k]){
+      if(!kState[k]) kState[k]={t:DAS};
+      else{
+        kState[k].t-=dt;
+        if(kState[k].t<=0){ kState[k].t=ARR; move(k==='ArrowLeft'?-1:1); }
+      }
+    }
+  }
+}
+
+// ── DRAW PUYO ──────────────────────────────────────────────────────
+function drawPuyo(cx, x, y, cid, size, alpha=1){
+  const ch = CHARS[cid];
+  const r = size/2;
+  cx.save();
+  cx.globalAlpha = alpha;
+
+  // Circle with gradient
+  const grad = cx.createRadialGradient(x+r*0.7,y+r*0.6,r*0.1, x+r,y+r,r);
+  grad.addColorStop(0, ch.hi);
+  grad.addColorStop(0.6, ch.bg);
+  grad.addColorStop(1, ch.border);
+  cx.beginPath();
+  cx.arc(x+r, y+r, r-2, 0, Math.PI*2);
+  cx.fillStyle = grad;
+  cx.fill();
+
+  // Border
+  cx.strokeStyle = ch.border;
+  cx.lineWidth = 2;
+  cx.stroke();
+
+  // Shine
+  cx.beginPath();
+  cx.arc(x+r*0.65, y+r*0.55, r*0.28, 0, Math.PI*2);
+  cx.fillStyle = 'rgba(255,255,255,0.28)';
+  cx.fill();
+
+  // Sticker image or emoji fallback
+  const img = stickerImgs[cid];
+  if(img && img.complete && img.naturalWidth>0){
+    // 円にクリップして画像を描画
+    cx.save();
+    cx.beginPath();
+    cx.arc(x+r, y+r, r-2, 0, Math.PI*2);
+    cx.clip();
+    const pad = r*0.08;
+    cx.drawImage(img, x+pad, y+pad, size-pad*2, size-pad*2);
+    cx.restore();
+    // 光沢を上から重ねる
+    cx.beginPath();
+    cx.arc(x+r*0.65, y+r*0.55, r*0.22, 0, Math.PI*2);
+    cx.fillStyle = 'rgba(255,255,255,0.18)';
+    cx.fill();
+  } else {
+    // Emoji + short name
+    cx.font = `${Math.floor(r*0.82)}px serif`;
+    cx.textAlign = 'center';
+    cx.textBaseline = 'middle';
+    cx.fillText(ch.emoji, x+r, y+r*0.95);
+
+    cx.font = `bold ${Math.max(7,Math.floor(r*0.26))}px 'Hiragino Sans','Meiryo',sans-serif`;
+    cx.fillStyle = ch.text;
+    cx.textBaseline = 'bottom';
+    cx.fillText(ch.short, x+r, y+size-3);
+  }
+  cx.restore();
+}
+
+// ── DRAW LEGEND ────────────────────────────────────────────────────
+function drawLegend(){
+  lctx.clearRect(0,0,136,220);
+  const sz=36;
+  CIDS.forEach((cid,i)=>{
+    drawPuyo(lctx, 2, 2+i*43, cid, sz);
+    lctx.save();
+    lctx.fillStyle='#e8d5a3';
+    lctx.font=`11px 'Hiragino Sans','Meiryo',sans-serif`;
+    lctx.textBaseline='middle';
+    lctx.fillText(CHARS[cid].name, 42, 2+i*43+sz/2);
+    lctx.restore();
+  });
+}
+
+// ── GHOST ──────────────────────────────────────────────────────────
+function getGhost(){
+  if(!cur||clearing) return null;
+  let gpr=cur.pr, gar=cur.ar;
+  while(pairFree(cur.pc, gpr+1, cur.ac, gar+1)){ gpr++; gar++; }
+  return {pc:cur.pc, pr:gpr, ac:cur.ac, ar:gar};
+}
+
+// ── RENDER ─────────────────────────────────────────────────────────
+function render(){
+  // Board
+  ctx.fillStyle='#080e1c';
+  ctx.fillRect(0,0,W,H);
+
+  // Grid
+  ctx.strokeStyle='rgba(80,110,160,0.18)';
+  ctx.lineWidth=1;
+  for(let c=0;c<=COLS;c++){ctx.beginPath();ctx.moveTo(c*CELL,0);ctx.lineTo(c*CELL,H);ctx.stroke();}
+  for(let r=0;r<=VIS;r++){ctx.beginPath();ctx.moveTo(0,r*CELL);ctx.lineTo(W,r*CELL);ctx.stroke();}
+
+  // Board puyos (row 0 hidden, row 1 = visual row 0)
+  for(let r=1;r<ROWS;r++){
+    for(let c=0;c<COLS;c++){
+      if(board[r][c]) drawPuyo(ctx, c*CELL, (r-1)*CELL, board[r][c], CELL);
+    }
+  }
+
+  // Ghost
+  const g=getGhost();
+  if(g && g.pr!==cur.pr){
+    if(g.pr>=1) drawPuyo(ctx, g.pc*CELL,(g.pr-1)*CELL, cur.pCol, CELL, 0.18);
+    if(g.ar>=1) drawPuyo(ctx, g.ac*CELL,(g.ar-1)*CELL, cur.aCol, CELL, 0.18);
+  }
+
+  // Current piece
+  if(cur){
+    if(cur.pr>=1) drawPuyo(ctx, cur.pc*CELL,(cur.pr-1)*CELL, cur.pCol, CELL);
+    if(cur.ar>=1) drawPuyo(ctx, cur.ac*CELL,(cur.ar-1)*CELL, cur.aCol, CELL);
+  }
+
+  // Next
+  nctx.fillStyle='#060b18'; nctx.fillRect(0,0,120,132);
+  if(nxt){
+    const ns=56, nx=(120-ns)/2;
+    drawPuyo(nctx, nx, 2, nxt.aCol, ns);
+    drawPuyo(nctx, nx, ns+4, nxt.pCol, ns);
+  }
+}
+
+// ── GAME LOOP ──────────────────────────────────────────────────────
+const BASE_INTERVAL = 600;
+
+function loop(ts){
+  if(!lastT) lastT=ts;
+  const dt = ts-lastT; lastT=ts;
+
+  if(gameOn){
+    if(!clearing && cur){
+      const interval = held['ArrowDown'] ? 80 : BASE_INTERVAL;
+      fallAcc += dt;
+      if(fallAcc >= interval){
+        fallAcc=0;
+        if(!drop()) land();
+      }
+    }
+    handleDAS(dt);
+  }
+  render();
+  requestAnimationFrame(loop);
+}
+
+// ── LOAD STICKER IMAGES ────────────────────────────────────────────
+function loadStickers(){
+  let loaded=0;
+  const total = Object.values(STICKER_URLS).filter(Boolean).length;
+  if(total===0){ drawLegend(); return; }
+  for(const [cid,url] of Object.entries(STICKER_URLS)){
+    if(!url) continue;
+    const img = new Image();
+    // crossOriginなし → ローカルファイルでもCORSエラーを回避
+    img.onload = ()=>{ stickerImgs[cid]=img; loaded++; if(loaded>=total) drawLegend(); };
+    img.onerror = ()=>{ console.warn(`${cid}のスティッカーロード失敗、絵文字で代替`); loaded++; if(loaded>=total) drawLegend(); };
+    img.src = url;
+  }
+}
+
+// ── START ──────────────────────────────────────────────────────────
+document.getElementById('restartBtn').addEventListener('click', init);
+loadStickers();
+init();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
