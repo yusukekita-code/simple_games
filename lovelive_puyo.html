@@ -114,16 +114,15 @@ const CHARS = {
 };
 const CIDS = ['orange','white','blue','yellow','green'];
 
-// ★ スプライトシート (lovelive_stamps3.png: 3列×2行) ★
-// 列: 0=穂乃果, 1=ことり, 2=海未 / 行: 0=上段, 1=下段(左=凛, 右=花陽)
-let spriteSheet = null;
-const SPRITE_POS = {
-  orange: { col:0, row:0 },  // 穂乃果
-  white:  { col:1, row:0 },  // ことり
-  blue:   { col:2, row:0 },  // 海未
-  yellow: { col:0, row:1 },  // 凛
-  green:  { col:2, row:1 },  // 花陽
+// ★ キャラクター個別スタンプ画像 ★
+const STICKER_SRCS = {
+  orange: 'lovelive_stamps/01_honoka.png',
+  white:  'lovelive_stamps/02_kotori.png',
+  blue:   'lovelive_stamps/03_umi.png',
+  yellow: 'lovelive_stamps/04_rin.png',
+  green:  'lovelive_stamps/05_hanayo.png',
 };
+const stickerImgs = {};
 
 // スピード設定 (ms/row)
 const SPEED_TABLE = [900, 650, 450, 280, 130];
@@ -344,23 +343,14 @@ function drawPuyo(cx,x,y,cid,size,alpha=1){
   cx.lineWidth=2;
   cx.stroke();
 
-  // スプライトシート or 絵文字
-  const sp=spriteSheet&&spriteSheet.complete&&spriteSheet.naturalWidth>0 ? SPRITE_POS[cid] : null;
-  if(sp){
-    const imgW=spriteSheet.naturalWidth;   // 1024
-    const imgH=spriteSheet.naturalHeight;  // 1024
-    const cellW=imgW/3;  // 列幅 ≈341.3px
-    // 画像は縦長セル(341×512)のため、スタンプ円の実際のY中心を推定してクロップ
-    // 上段の円中心: 画像高さの約30.8%, 下段: 約69.2%
-    const yCenterAbs=[imgH*0.308, imgH*0.692][sp.row];
-    const cropSize=cellW;  // 正方形クロップ(縦横圧縮なし)
-    const sx=sp.col*cellW;
-    const sy=yCenterAbs-cropSize/2;
+  // スタンプ画像 or 絵文字
+  const img=stickerImgs[cid];
+  if(img&&img.complete&&img.naturalWidth>0){
     cx.save();
     cx.beginPath();
     cx.arc(x+r,y+r,r-2,0,Math.PI*2);
     cx.clip();
-    cx.drawImage(spriteSheet,sx,sy,cropSize,cropSize,x,y,size,size);
+    cx.drawImage(img,x,y,size,size);
     cx.restore();
     cx.beginPath();
     cx.arc(x+r*0.65,y+r*0.55,r*0.22,0,Math.PI*2);
@@ -464,16 +454,20 @@ function loop(ts){
   requestAnimationFrame(loop);
 }
 
-// ── SPRITE SHEET LOAD ──────────────────────────────────────────────
-function loadSpriteSheet(){
-  spriteSheet=new Image();
-  spriteSheet.onload=()=>{ drawLegend(); };
-  spriteSheet.onerror=()=>{ console.warn('スプライトシートのロード失敗'); drawLegend(); };
-  spriteSheet.src='./lovelive_stamps3.png';
+// ── STICKER LOAD ───────────────────────────────────────────────────
+function loadStickers(){
+  let loaded=0;
+  const entries=Object.entries(STICKER_SRCS);
+  for(const [cid,src] of entries){
+    const img=new Image();
+    img.onload=()=>{ stickerImgs[cid]=img; loaded++; if(loaded>=entries.length) drawLegend(); };
+    img.onerror=()=>{ console.warn(`${cid}の画像ロード失敗`); loaded++; if(loaded>=entries.length) drawLegend(); };
+    img.src=src;
+  }
 }
 
 // ── START ──────────────────────────────────────────────────────────
-loadSpriteSheet();
+loadStickers();
 init();
 requestAnimationFrame(loop);
 </script>
